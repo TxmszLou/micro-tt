@@ -87,35 +87,28 @@ fun context_lookup (G : Ctxt) (e : Term) =
     | (x,a)::G => if (alpha x e) then SOME a else (context_lookup G e)
 
 fun Typecheck (G : Ctxt) (e : Term) (t : Term) : bool =
-  case (beta G e,beta G t) of
+  case (e,t) of
       (Var (x,_),tau) =>
       (case context_lookup G (Var (x,0)) of
-          NONE => false
-        | SOME t' => alpha t t')
+           NONE => false
+        |  SOME t' => alpha t t')
+    | (App (e1,e2,_),tau) =>
+      let val t1 = Synthesize G e1
+          val t2 = Synthesize G e2
+      in
+          (case (t1,t2) of
+               (SOME (Lam (_,t,m,c)), SOME (Type i)) => if Typecheck G t (Type i) then true else false
+             | (SOME (Lam (_,t,m,c)), SOME t') =>
+               if alpha t t' then true else false
+             |  _ => false)
+      end
     | (Lam (x,t,m,c),Pi(y,A,B,c')) => (alpha t A) andalso (Typecheck (((Var (x,c)),t)::(Var (y,c'),A)::G) m B)
     | (Pi (x,A,B,c),Type n) => Typecheck G A (Type n) andalso Typecheck G B (Type n)
     | (Eq _ ,Type n) => true
     | (refl(A,x,_),Eq(B,a,b,_)) => (alpha A B) andalso (Typecheck G x A) andalso (alpha a b) andalso (alpha x a)
     | (Type n,Type m) => n < m
     | _ => false
-and beta (G : Ctxt) (e : Term) : Term =
-  case e of
-      Var _ => e
-   |  Lam _ => e
-   |  App (Lam (x,t,m,c1),e2,c) =>
-      let val A = beta G t
-      in if Typecheck G e2 A
-         then beta G (subst m x e2)
-         else e
-      end
-   |  App(e1,e2,c) => App (beta G e1, beta G e2, c)
-   |  Pi (x,A,B,c) => Pi (x, beta G A, B, c)
-   |  Eq (A,x,y,c) => Eq (beta G A, beta G x, beta G y, c)
-   |  refl (A,x,c) => refl (beta G A, beta G x, c)
-   |  Type _ => e
-
-
-fun Synthesize (G : Ctxt) (e : Term) : Term option =
+and Synthesize (G : Ctxt) (e : Term) : Term option =
   case e of
       Var _ => context_lookup G e
    |  Lam (x,t,n,c) =>
@@ -154,6 +147,21 @@ fun Synthesize (G : Ctxt) (e : Term) : Term option =
       end
    |  Eq (A,x,y,c) => Synthesize G A
    |  Type i => SOME (Type (i + 1))
+and beta (G : Ctxt) (e : Term) : Term =
+    case e of
+        Var _ => e
+      | Lam _ =>  e
+      | App (Lam (x,t,m,c1),e2,c) =>
+        let val A = beta G t
+        in if Typecheck G e2 A
+           then beta G (subst m x e2)
+           else e
+        end
+      | App(e1,e2,c) => App (beta G e1, beta G e2, c)
+      | Pi (x,A,B,c) => Pi (x, beta G A, B, c)
+      | Eq (A,x,y,c) => Eq (beta G A, beta G x, beta G y, c)
+      | refl (A,x,c) => refl (beta G A, beta G x, c)
+      | Type _ => e
 
 
 fun Define (G : Ctxt) (p1 : Term) (p2 : Term) : Ctxt =
