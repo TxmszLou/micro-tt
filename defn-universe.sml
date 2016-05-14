@@ -81,6 +81,7 @@ fun alpha (s : Term) (t : Term) : bool =
     | (Type n,Type m) => n = m
     | _ => false
 
+
 fun context_lookup (G : Ctxt) (e : Term) =
   case G of
       [] => NONE
@@ -162,6 +163,20 @@ and beta (G : Ctxt) (e : Term) : Term =
       | Eq (A,x,y,c) => Eq (beta G A, beta G x, beta G y, c)
       | refl (A,x,c) => refl (beta G A, beta G x, c)
       | Type _ => e
+(** eta-congruence **)
+and eta (G : Ctxt) (f : Term) (e : Term) : bool =
+  let val t1 = Synthesize G f
+      val t2 = Synthesize G e
+  in
+      case (t1,t2) of
+          (SOME A, SOME B) =>
+          (if alpha A B
+           then case f of
+                    Lam (x,t,App (e1,Var (x',_),_),_) => x = x' andalso alpha e1 e
+                  | _ => false
+           else false)
+        | _ => false
+  end
 
 
 fun Define (G : Ctxt) (p1 : Term) (p2 : Term) : Ctxt =
