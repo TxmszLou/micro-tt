@@ -10,8 +10,10 @@ t,u,A,B ::= x | lambda x : A . t | t u | PI (x : A) . B
 + hints (for Reflection rules)
 
 *)
-datatype Term = VAR of string * int | LAM of string * Term * Term * int | APP of Term * Term * int
-              | PI of string * Term * Term * int | EQ of Term * Term * Term * int | REFL of Term * int
+datatype Term = VAR of string * int
+              | LAM of string * Term * Term * int | APP of Term * Term * int | PI of string * Term * Term * int
+              | PAIR of Term * Term * int | SIG of string * Term * Term * int | PR1 of Term * int | PR2 of Term * int
+              | EQ of Term * Term * Term * int | REFL of Term * int
               | TYPE of int
 
 
@@ -32,6 +34,10 @@ fun FV e =
    |  LAM (x,t,e,_) => remove x (FV e @ FV t)
    |  APP (m,n,_) => (FV m) @ (FV n)
    |  PI  (x,A,B,_) => remove x (FV A @ FV B)
+   |  PAIR (a,b,_) => (FV a) @ (FV b)
+   |  PR1 (p,_) => FV p
+   |  PR2 (p,_) => FV p
+   |  SIG (x,A,B,_) => remove x (FV A @ FV B)
    |  EQ  (A,x,y,_) => FV A @ FV x @ FV y
    |  REFL (A,_) => FV A
    |  TYPE _ => []
@@ -67,6 +73,19 @@ fun subst (e : Term) (x : string) (m : Term) : Term =
                             end
                         else
                             PI (y,(subst A x m),(subst B x m),c)
+    | PAIR (a,b,c) => PAIR (subst a x m, subst b x m, c)
+    | SIG (y,A,B,c) => if x = y
+                       then e
+                       else if member y (FV m)
+                       then
+                           let val nvar = "T" ^ (Int.toString c)
+                           in SIG (nvar,(subst (subst A y (VAR (nvar,c+1))) x m),
+                                   (subst (subst B y (VAR (nvar,c+1))) x m),c+1)
+                           end
+                       else
+                           SIG (y,subst A x m, subst B x m,c)
+    | PR1 (p,c) => PR1 (subst p x m,c)
+    | PR2 (p,c) => PR2 (subst p x m,c)
     | EQ (A,a,b,c) => EQ (subst A x m, subst a x m, subst b x m,c)
     | REFL (A,c) => REFL (subst A x m, c)
     | TYPE _ => e
@@ -78,6 +97,10 @@ fun alpha (s : Term) (t : Term) : bool =
     | (LAM(x,t,m,_),(LAM(y,t',n,_))) => alpha t t' andalso alpha m (subst n y (VAR (x,0)))
     | (APP(e1,e2,_),APP(t1,t2,_)) => alpha e1 t1 andalso alpha e2 t2
     | (PI(x,A,B,_),PI(y,C,D,_)) => alpha A C andalso alpha B (subst D y (VAR (x,0)))
+    | (PAIR(a,b,_),PAIR(c,d,_)) => (alpha a c) andalso (alpha b d)
+    | (SIG(x,A,B,_),SIG(y,C,D,_)) => (alpha A C) andalso (alpha B (subst D y (VAR (x,0))))
+    | (PR1(p,_),PR1(q,_)) => alpha p q
+    | (PR2(p,_),PR1(q,_)) => alpha p q
     | (EQ(A,a,b,_),EQ(B,x,y,_)) => alpha A B andalso alpha a x andalso alpha b y
     | (REFL(A,_),REFL(B,_)) => alpha A B
     | (TYPE n,TYPE m) => n = m
@@ -114,6 +137,10 @@ fun Typecheck (G : Ctxt) (E : Hint) (e : Term) (t : Term) : bool =
       end
     | (LAM (x,t,m,c),PI(y,A,B,c')) => (equiv G E t A) andalso (Typecheck ((VAR(x,c),t)::(VAR(y,c'),A)::G) E m B)
     | (PI (x,A,B,c),TYPE n) => Typecheck G E A (TYPE n) andalso Typecheck G E B (TYPE n)
+    | (PAIR(a,b,c),SIG(x,A,B,c')) => Typecheck G E a A andalso Typecheck G E b (beta G E (APP (B,a,c')))
+    | (SIG(x,A,B,_),TYPE n) => Typecheck G E A (TYPE n) andalso Typecheck G E B (TYPE n)
+    | (PR1(PAIR(a,_,_), _),_) => Typecheck G E a t
+    | (PR2(PAIR(_,b,_), _),_) => Typecheck G E b t
     | (EQ _ ,TYPE n) => true
     | (REFL(A,_),EQ(B,a,b,_)) => equiv G E A B andalso Typecheck G E a A andalso equiv G E a b
     | (TYPE n,TYPE m) => n < m
@@ -155,6 +182,42 @@ and Synthesize (G : Ctxt) (E : Hint) (e : Term) : Term option =
            | (SOME (EQ _), SOME (TYPE _)) => tb
            | _ => NONE
       end
+   | PAIR (a,b,_) =>
+     let val ta = Synthesize G E a
+         val tb = Synthesize G E b
+     in
+         (case (ta,tb) of
+              (SOME t,SOME (PI (x,A,B,c))) => if equiv G E t A then SOME (SIG (x,A,B,c)) else NONE
+            | _ => NONE)
+     end
+   | SIG (x,A,B,c) =>
+     let val ta = Synthesize G E A
+         val tb = case ta of
+                      NONE => NONE
+                   |  SOME t => Synthesize ((VAR (x,0),t)::G) E B
+     in case (ta,tb) of
+            (SOME (TYPE i), SOME (TYPE j)) =>
+            if i < j then SOME (TYPE j) else SOME (TYPE i)
+          | (SOME (TYPE i), SOME (VAR _)) => ta
+          | (SOME (TYPE _), SOME (PI _)) => ta
+          | (SOME (TYPE _), SOME (EQ _)) => ta
+          | (SOME (VAR _), SOME (TYPE _)) => tb
+          | (SOME (PI _), SOME (TYPE _)) => tb
+          | (SOME (EQ _), SOME (TYPE _)) => tb
+          | _ => NONE
+     end
+   | PR1 (p,c) =>
+     let val tp = Synthesize G E p
+     in case tp of
+            SOME (PI(_,A,B,_)) => SOME A
+          | _ => NONE
+     end
+   | PR2 (p,c) =>
+     let val tp = Synthesize G E p
+     in case tp of
+            SOME (SIG(x,A,B,c')) => SOME (APP (B,PR1(p,c),c'))
+          | _ => NONE
+     end
    |  EQ (A,x,y,c) => Synthesize G E A
    |  TYPE i => SOME (TYPE (i + 1))
 and beta (G : Ctxt) (E : Hint) (e : Term) : Term =
@@ -169,6 +232,22 @@ and beta (G : Ctxt) (E : Hint) (e : Term) : Term =
         end
       | APP(e1,e2,c) => APP (beta G E e1, beta G E e2, c)
       | PI (x,A,B,c) => PI (x, beta G E A, B, c)
+      | PAIR (a,b,c) => PAIR (beta G E a, beta G E b, c)
+      | SIG (x,A,B,c) => SIG (x, beta G E A, B, c)
+      | PR1 (p,c) =>
+        let val p = beta G E p
+        in
+            case p of
+                PAIR (a,_,_) => a
+              | _ => e
+        end
+      | PR2 (p,c) =>
+        let val p = beta G E p
+        in
+            case p of
+                PAIR (_,b,_) => b
+              | _ => e
+        end
       | EQ (A,x,y,c) => EQ (beta G E A, beta G E x, beta G E y, c)
       | REFL (A,c) => REFL (beta G E A, c)
       | TYPE _ => e
