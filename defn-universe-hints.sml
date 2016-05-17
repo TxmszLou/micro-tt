@@ -3,16 +3,16 @@
 (* a minimal type theory with universes *)
 (**
 
-t,u,A,B ::= x | lambda x : A . t | t u | Pi (x : A) . B
-         | Eq A t u | refl A a | Type_i
+t,u,A,B ::= x | lambda x : A . t | t u | PI (x : A) . B
+         | EQ A t u | REFL A | TYPE_i
 
 + naive universes (cumulative universe)
-+ hints (for reflection rules)
++ hints (for Reflection rules)
 
 *)
-datatype Term = Var of string * int | Lam of string * Term * Term * int | App of Term * Term * int
-              | Pi of string * Term * Term * int | Eq of Term * Term * Term * int | refl of Term * Term * int
-              | Type of int
+datatype Term = VAR of string * int | LAM of string * Term * Term * int | APP of Term * Term * int
+              | PI of string * Term * Term * int | EQ of Term * Term * Term * int | REFL of Term * int
+              | TYPE of int
 
 
 type Ctxt = (Term * Term) list
@@ -28,13 +28,13 @@ fun remove a xs =
 (** collect free variables of an expression as a list **)
 fun FV e =
   case e of
-      Var (x,_) => [x]
-   |  Lam (x,t,e,_) => remove x ((FV e) @ (FV t))
-   |  App (m,n,_) => (FV m) @ (FV n)
-   |  Pi  (x,A,B,_) => remove x ((FV A) @ (FV B))
-   |  Eq  (A,x,y,_) => (FV A) @ (FV x) @ (FV y)
-   |  refl (A,x,_) => (FV A) @ (FV x)
-   |  Type _ => []
+      VAR (x,_) => [x]
+   |  LAM (x,t,e,_) => remove x (FV e @ FV t)
+   |  APP (m,n,_) => (FV m) @ (FV n)
+   |  PI  (x,A,B,_) => remove x (FV A @ FV B)
+   |  EQ  (A,x,y,_) => FV A @ FV x @ FV y
+   |  REFL (A,_) => FV A
+   |  TYPE _ => []
 
 fun member x xs =
   case xs of
@@ -46,132 +46,132 @@ fun member x xs =
 (** (2) fresh variable number of the term is always greater than that of its subterms **)
 fun subst (e : Term) (x : string) (m : Term) : Term =
   case e of
-      Var (y,_) => if x = y then m else e
-    | Lam (y,t,n,c) => if x = y
+      VAR (y,_) => if x = y then m else e
+    | LAM (y,t,n,c) => if x = y
                        then e
                        else if member y (FV m)
                        then
                            let val nvar = "T" ^ (Int.toString c)
-                           in Lam(nvar,t,(subst (subst n y (Var (nvar,c+1))) x m),c+1)
+                           in LAM(nvar,t,(subst (subst n y (VAR (nvar,c+1))) x m),c+1)
                            end
                        else
-                           (Lam(y,t,(subst n x m),c))
-    |  App (e1,e2,c) => App (subst e1 x m, subst e2 x m,c)
-    |  Pi (y,A,B,c) => if x = y
-                         then e
-                         else if member y (FV m)
-                         then
-                             let val nvar = "T" ^ (Int.toString c)
-                             in Pi (nvar,(subst (subst A y (Var (nvar,c+1))) x m),
-                                         (subst (subst B y (Var (nvar,c+1))) x m),c+1)
-                             end
-                         else
-                             (Pi (y,(subst A x m),(subst B x m),c))
-    |  Eq (A,a,b,c) => Eq (subst A x m, subst a x m, subst b x m,c)
-    |  refl (A,a,c) => refl (subst A x m, subst a x m,c)
-    |  Type _ => e
+                           LAM(y,t,(subst n x m),c)
+    | APP (e1,e2,c) => APP (subst e1 x m, subst e2 x m,c)
+    | PI (y,A,B,c) => if x = y
+                        then e
+                        else if member y (FV m)
+                        then
+                            let val nvar = "T" ^ (Int.toString c)
+                            in PI (nvar,(subst (subst A y (VAR (nvar,c+1))) x m),
+                                        (subst (subst B y (VAR (nvar,c+1))) x m),c+1)
+                            end
+                        else
+                            PI (y,(subst A x m),(subst B x m),c)
+    | EQ (A,a,b,c) => EQ (subst A x m, subst a x m, subst b x m,c)
+    | REFL (A,c) => REFL (subst A x m, c)
+    | TYPE _ => e
 
 (** alpha-congruence **)
 fun alpha (s : Term) (t : Term) : bool =
   case (s,t) of
-      (Var x, Var y) => x = y
-    | (Lam(x,t,m,_),(Lam(y,t',n,_))) => (alpha t t') andalso (alpha m (subst n y (Var (x,0))))
-    | (App(e1,e2,_),App(t1,t2,_)) => (alpha e1 t1) andalso (alpha e2 t2)
-    | (Pi(x,A,B,_),Pi(y,C,D,_)) => (alpha A C) andalso (alpha B (subst D y (Var (x,0))))
-    | (Eq(A,a,b,_),Eq(B,x,y,_)) => (alpha A B) andalso (alpha a x) andalso (alpha b y)
-    | (refl(A,x,_),refl(B,y,_)) => (alpha A B) andalso (alpha x y)
-    | (Type n,Type m) => n = m
+      (VAR x, VAR y) => x = y
+    | (LAM(x,t,m,_),(LAM(y,t',n,_))) => alpha t t' andalso alpha m (subst n y (VAR (x,0)))
+    | (APP(e1,e2,_),APP(t1,t2,_)) => alpha e1 t1 andalso alpha e2 t2
+    | (PI(x,A,B,_),PI(y,C,D,_)) => alpha A C andalso alpha B (subst D y (VAR (x,0)))
+    | (EQ(A,a,b,_),EQ(B,x,y,_)) => alpha A B andalso alpha a x andalso alpha b y
+    | (REFL(A,_),REFL(B,_)) => alpha A B
+    | (TYPE n,TYPE m) => n = m
     | _ => false
 
 
 fun context_lookup (G : Ctxt) (e : Term) =
   case G of
       [] => NONE
-    | (x,a)::G => if (alpha x e) then SOME a else (context_lookup G e)
+    | (x,a)::G => if alpha x e then SOME a else context_lookup G e
 
 fun hint_check (E : Hint) (e1 : Term) (e2 : Term) (t : Term) : bool =
   case E of
       [] => false
     | (A,x,y)::E =>
-      (alpha A t andalso ((alpha x e1 andalso alpha y e2) orelse (alpha x e2 andalso alpha y e1)))
+      (alpha A t andalso (alpha x e1 andalso alpha y e2 orelse (alpha x e2 andalso alpha y e1)))
           orelse hint_check E e1 e2 t
 
 fun Typecheck (G : Ctxt) (E : Hint) (e : Term) (t : Term) : bool =
   case (e,t) of
-      (Var (x,_),tau) =>
-      (case context_lookup G (Var (x,0)) of
+      (VAR (x,_),tau) =>
+      (case context_lookup G (VAR (x,0)) of
            NONE => false
         |  SOME t' => equiv G E t t')
-    | (App (e1,e2,_),tau) =>
+    | (APP (e1,e2,_),tau) =>
       let val t1 = Synthesize G E e1
           val t2 = Synthesize G E e2
       in
           (case (t1,t2) of
-               (SOME (Lam (_,t,m,c)), SOME (Type i)) => if Typecheck G E t (Type i) then true else false
-             | (SOME (Lam (_,t,m,c)), SOME t') =>
+               (SOME (LAM (_,t,m,c)), SOME (TYPE i)) => if Typecheck G E t (TYPE i) then true else false
+             | (SOME (LAM (_,t,m,c)), SOME t') =>
                if equiv G E t t' then true else false
              |  _ => false)
       end
-    | (Lam (x,t,m,c),Pi(y,A,B,c')) => (equiv G E t A) andalso (Typecheck (((Var (x,c)),t)::(Var (y,c'),A)::G) E m B)
-    | (Pi (x,A,B,c),Type n) => Typecheck G E A (Type n) andalso Typecheck G E B (Type n)
-    | (Eq _ ,Type n) => true
-    | (refl(A,x,_),Eq(B,a,b,_)) => (equiv G E A B) andalso (Typecheck G E x A) andalso (equiv G E a b) andalso (equiv G E x a)
-    | (Type n,Type m) => n < m
+    | (LAM (x,t,m,c),PI(y,A,B,c')) => (equiv G E t A) andalso (Typecheck ((VAR(x,c),t)::(VAR(y,c'),A)::G) E m B)
+    | (PI (x,A,B,c),TYPE n) => Typecheck G E A (TYPE n) andalso Typecheck G E B (TYPE n)
+    | (EQ _ ,TYPE n) => true
+    | (REFL(A,_),EQ(B,a,b,_)) => equiv G E A B andalso Typecheck G E a A andalso equiv G E a b
+    | (TYPE n,TYPE m) => n < m
     | _ => false
 and Synthesize (G : Ctxt) (E : Hint) (e : Term) : Term option =
   case e of
-      Var _ => context_lookup G e
-   |  Lam (x,t,n,c) =>
+      VAR _ => context_lookup G e
+   |  LAM (x,t,n,c) =>
       let val A = beta G E t
-          val B = Synthesize ((Var (x,c),A)::G) E n
+          val B = Synthesize ((VAR (x,c),A)::G) E n
       in case B of
               NONE => NONE
-           |  SOME B' => SOME (Pi (x,A,B',c))
+           |  SOME B' => SOME (PI (x,A,B',c))
       end
-   |  App (e1,e2,_) =>
+   |  APP (e1,e2,_) =>
       let val f = Synthesize G E e1
       in case f of
              NONE => NONE
           |  SOME f' => case beta G E f' of
-                            Pi(x,A,B,_) =>
+                            PI(x,A,B,_) =>
                             let val res = beta G E e2
                             in if Typecheck G E res A then SOME (beta G E (subst B x res)) else NONE end
                          | _ => NONE
       end
-   |  refl (A,x,c) => SOME (Eq(beta G E A, beta G E x, beta G E x, c))
-   |  Pi (x,A,B,c) =>
+   |  REFL (A,c) => NONE
+   |  PI (x,A,B,c) =>
       let val ta = Synthesize G E A
           val tb = case ta of
                        NONE => NONE
-                    |  SOME t => Synthesize ((Var (x,0),t)::G) E B
+                    |  SOME t => Synthesize ((VAR (x,0),t)::G) E B
       in case (ta,tb) of
-             (SOME (Type i), SOME (Type j)) =>
-             if i < j then SOME (Type j) else SOME (Type i)
-           | (SOME (Type i), SOME (Var _)) => ta
-           | (SOME (Type _), SOME (Pi _)) => ta
-           | (SOME (Type _), SOME (Eq _)) => ta
-           | (SOME (Var _), SOME (Type _)) => tb
-           | (SOME (Pi _), SOME (Type _)) => tb
-           | (SOME (Eq _), SOME (Type _)) => tb
+             (SOME (TYPE i), SOME (TYPE j)) =>
+             if i < j then SOME (TYPE j) else SOME (TYPE i)
+           | (SOME (TYPE i), SOME (VAR _)) => ta
+           | (SOME (TYPE _), SOME (PI _)) => ta
+           | (SOME (TYPE _), SOME (EQ _)) => ta
+           | (SOME (VAR _), SOME (TYPE _)) => tb
+           | (SOME (PI _), SOME (TYPE _)) => tb
+           | (SOME (EQ _), SOME (TYPE _)) => tb
            | _ => NONE
       end
-   |  Eq (A,x,y,c) => Synthesize G E A
-   |  Type i => SOME (Type (i + 1))
+   |  EQ (A,x,y,c) => Synthesize G E A
+   |  TYPE i => SOME (TYPE (i + 1))
 and beta (G : Ctxt) (E : Hint) (e : Term) : Term =
     case e of
-        Var _ => e
-      | Lam _ =>  e
-      | App (Lam (x,t,m,c1),e2,c) =>
+        VAR _ => e
+      | LAM _ =>  e
+      | APP (LAM (x,t,m,c1),e2,c) =>
         let val A = beta G E t
         in if Typecheck G E e2 A
            then beta G E (subst m x e2)
            else e
         end
-      | App(e1,e2,c) => App (beta G E e1, beta G E e2, c)
-      | Pi (x,A,B,c) => Pi (x, beta G E A, B, c)
-      | Eq (A,x,y,c) => Eq (beta G E A, beta G E x, beta G E y, c)
-      | refl (A,x,c) => refl (beta G E A, beta G E x, c)
-      | Type _ => e
+      | APP(e1,e2,c) => APP (beta G E e1, beta G E e2, c)
+      | PI (x,A,B,c) => PI (x, beta G E A, B, c)
+      | EQ (A,x,y,c) => EQ (beta G E A, beta G E x, beta G E y, c)
+      | REFL (A,c) => REFL (beta G E A, c)
+      | TYPE _ => e
 (** eta-congruence **)
 and eta (G : Ctxt) (E : Hint) (f : Term) (e : Term) : bool =
   let val t1 = Synthesize G E f
@@ -181,7 +181,7 @@ and eta (G : Ctxt) (E : Hint) (f : Term) (e : Term) : bool =
           (SOME A, SOME B) =>
           (if alpha A B
            then case f of
-                    Lam (x,t,App (e1,Var (x',_),_),_) => x = x' andalso equiv G E e1 e
+                    LAM (x,t,APP (e1,VAR (x',_),_),_) => x = x' andalso equiv G E e1 e
                   | _ => false
            else false)
         | _ => false
@@ -209,7 +209,7 @@ fun Define (G : Ctxt) (E : Hint) (p1 : Term) (p2 : Term) : Ctxt =
   in
       case t of
           NONE => (print "Not a type!"; G)
-       |  SOME (Type i) =>
+       |  SOME (TYPE i) =>
           if Typecheck G E e1 e2
           then (e1,e2)::G
           else (print "Type check failed!\n"; G)
@@ -219,17 +219,17 @@ fun Define (G : Ctxt) (E : Hint) (p1 : Term) (p2 : Term) : Ctxt =
 
 (** naive tests **)
 
-val ctxt = (Var ("A",0),(Type 0))::(Var ("x",0),Var ("A",0))::(Var ("Int",0),(Type 0))::nil
+val ctxt = (VAR ("A",0),(TYPE 0))::(VAR ("x",0),VAR ("A",0))::(VAR ("Int",0),(TYPE 0))::nil
 val hint = nil
-(* reflx := refl A x : Eq A x x *)
-val reflx = refl (Var ("A",0),Var ("x",0),0)
-val idA = Eq (Var ("A",0),Var ("x",0),Var ("x",0),0)
-(* id_int := Lam x : Int . x : Pi _ : Int . Int *)
-val id_int = Lam ("x",Var ("Int",0),Var ("x",0),0)
-val id_int_t = Pi ("y",Var ("Int",0),Var ("Int",0),0)
-(* id_poly := Lam T : Type_0 . (Lam x : T . x) : Pi T : Type_0 . Pi _ : T . T *)
-val id_poly = Lam ("T",(Type 0),Lam ("x",Var ("T",0),Var ("x",0),0),0)
-val id_poly_t = Pi ("T",(Type 0),Pi ("y",Var ("T",0),Var ("T",0),0),0)
+(* reflx := refl A x : EQ A x x *)
+val reflx = REFL (VAR ("A",0),0)
+val idA = EQ (VAR ("A",0),VAR ("x",0),VAR ("x",0),0)
+(* id_int := LAM x : Int . x : PI _ : Int . Int *)
+val id_int = LAM ("x",VAR ("Int",0),VAR ("x",0),0)
+val id_int_t = PI ("y",VAR ("Int",0),VAR ("Int",0),0)
+(* id_poly := LAM T : TYPE_0 . (LAM x : T . x) : PI T : TYPE_0 . PI _ : T . T *)
+val id_poly = LAM ("T",(TYPE 0),LAM ("x",VAR ("T",0),VAR ("x",0),0),0)
+val id_poly_t = PI ("T",(TYPE 0),PI ("y",VAR ("T",0),VAR ("T",0),0),0)
 
 val nctxt = (Define (Define (Define ctxt hint reflx idA) hint id_int id_int_t) hint id_poly id_poly_t)
 

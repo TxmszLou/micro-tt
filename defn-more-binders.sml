@@ -133,7 +133,7 @@ fun Typecheck (G : Ctxt) (e : Term) (t : Term) : bool =
     | (PR1(PAIR(a,_,_), _),_) => Typecheck G a t
     | (PR2(PAIR(_,b,_), _),_) => Typecheck G b t
     | (EQ _ ,TYPE n) => true
-    | (REFL(A,_),EQ(B,a,b,_)) => alpha A B andalso alpha a b
+    | (REFL(A,_),EQ(B,a,b,_)) => alpha A B andalso alpha a b andalso Typecheck a B
     | (TYPE n,TYPE m) => n < m
     | _ => false
 
