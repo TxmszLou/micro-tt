@@ -9,12 +9,15 @@
 
 datatype TYPE = NAT | PROD of TYPE * TYPE | FUN of TYPE * TYPE | SET of TYPE | U
 and Type = Nat | Prod of Type * Type (* type names *)
-and Term = Var of string | O | S of Term | Lam of string * TYPE * Term * TYPE | App of TYPE * Term * Term
+(* lots of type annotation *)
+and Term = Var of string | O | S of Term | Lam of string * TYPE * Term * TYPE | App of Term * Term
            | Pair of TYPE * Term * Term | Pr1 of TYPE * Term | Pr2 of TYPE * Term
            | En of string * TYPE * Term * string * string * Term * Term (* NAT eliminator *)
            | Set of string * TYPE * Prop
 and PROP = EQ of Type * Term * Term | BOT | IMP of PROP * PROP | FORALL of string * TYPE * PROP (* small prop *)
 and Prop = Eq of Type * Term * Term | Bot | Imp of Prop * Prop | Forall of string * Type * Prop
+
+datatype Expr = TY of TYPE | Ty of Type | Tm of Term | PR of PROP | Pr of Prop
 
 
 (** Contexts **)
@@ -28,19 +31,35 @@ fun remove a xs =
     | x::xs => if x = a then remove a xs else x :: (remove a xs)
 
 (** collect free variables of an expression as a list **)
-fun FV e =
+fun FV (e : Expr) =
   case e of
-      VAR (x,_) => [x]
-   |  LAM (x,t,e,_) => remove x (FV e @ FV t)
-   |  APP (m,n,_) => (FV m) @ (FV n)
-   |  PI  (x,A,B,_) => remove x (FV A @ FV B)
-   |  PAIR (a,b,_) => (FV a) @ (FV b)
-   |  PR1 (p,_) => FV p
-   |  PR2 (p,_) => FV p
-   |  SIG (x,A,B,_) => remove x (FV A @ FV B)
-   |  EQ  (A,x,y,_) => FV A @ FV x @ FV y
-   |  REFL (A,_) => FV A
-   |  TYPE _ => []
+      TY t =>
+      (case t of
+           NAT => []
+         | PROD(M,N) => FV (TY M) @ FV (TY N)
+         | FUN(A,B) => FV (TY A) @ FV (TY B)
+         | SET t => FV (TY t)
+         | U => [])
+    | Ty t =>
+      (case t of
+           Nat => []
+        | Prod(m,n) => FV (Ty m) @ FV (Ty n)
+      )
+    | Tm t =>
+      (case t of
+           Var x => [x]
+         | O => []
+         | S n => FV (Tm n)
+         | Lam(x,_,m,_) => remove x (FV (Tm m))
+         | App(m,n) => FV (Tm m) @ FV (Tm n)
+         | Pair(_,a,b) => FV (Tm a) @ FV (Tm b)
+         | Pr1(_,p) => FV (Tm p)
+         | Pr2(_,p) => FV (Tm p)
+         | En(_,_,L,y,z,M,_) => FV (Tm L) @ remove y (remove z (FV (Tm M)))
+         | Set(x,_,_) => [x])
+    | PR p => []
+    | Pr _ => []
+
 
 fun member x xs =
   case xs of
